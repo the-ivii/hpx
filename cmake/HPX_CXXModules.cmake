@@ -6,30 +6,67 @@
 
 include(HPX_AddCompileFlag)
 include(HPX_Message)
-include(CheckCXXCompilerFlag)
+
+macro(hpx_check_cxx_modules_support)
+  if(HPX_WITH_CXX_MODULES)
+    if(NOT (CMAKE_VERSION VERSION_GREATER_EQUAL "3.29"))
+      hpx_fatal(
+        "Please use a version of CMake newer than V3.28 in order to enable C++ module support for HPX"
+      )
+    endif()
+
+    if(NOT (CMAKE_GENERATOR MATCHES "Ninja" OR CMAKE_GENERATOR MATCHES
+                                               "Visual Studio")
+    )
+      hpx_error(
+        "C++20 modules require Ninja or Visual Studio generator. Current generator: ${CMAKE_GENERATOR}\n"
+        "Please reconfigure with: cmake -G Ninja ..."
+      )
+    endif()
+
+    if(CMAKE_CXX_COMPILER_ID MATCHES "AppleClang")
+      hpx_error(
+        "AppleClang does not support C++20 module dependency scanning.\n"
+        "Please install and use LLVM Clang 16+ instead:\n"
+        "  macOS: brew install llvm\n"
+        "  Then: cmake -DCMAKE_CXX_COMPILER=/opt/homebrew/opt/llvm/bin/clang++ ..."
+      )
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+      if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "16.0")
+        hpx_error(
+          "Clang 16+ is required for C++20 modules support. Current version: ${CMAKE_CXX_COMPILER_VERSION}"
+        )
+      endif()
+      set(HPX_MODULE_INTERFACE_EXTENSION ".cppm")
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+      if(CMAKE_CXX_COMPILER_VERSION VERSION_LESS "14.0")
+        hpx_error(
+          "GCC 14+ is required for C++20 modules support (experimental). Current version: ${CMAKE_CXX_COMPILER_VERSION}"
+        )
+      endif()
+      set(HPX_MODULE_INTERFACE_EXTENSION ".cxx")
+      # GCC 14 requires -fmodules-ts to enable C++20 named module syntax
+      # even when -std=c++20 is set. This must be added globally for all
+      # TUs that interact with named modules (producers and consumers alike).
+      add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts>)
+    elseif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+      if(MSVC_VERSION LESS 1934)
+        hpx_error(
+          "Visual Studio 17.4+ is required for C++20 modules support. Current version: ${MSVC_VERSION}"
+        )
+      endif()
+      set(HPX_MODULE_INTERFACE_EXTENSION ".ixx")
+    else()
+      hpx_warn(
+        "C++20 modules support for compiler '${CMAKE_CXX_COMPILER_ID}' is unknown. Proceed with caution."
+      )
+      set(HPX_MODULE_INTERFACE_EXTENSION ".cppm")
+    endif()
+  endif()
+endmacro()
 
 if(NOT HPX_WITH_CXX_MODULES)
   return()
-endif()
-
-# Unfortunately, different compilers expect different file extensions for the
-# C++ module definition files.
-if(MSVC)
-  set(HPX_MODULE_INTERFACE_EXTENSION ".ixx")
-elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES
-                                                "AppleClang"
-)
-  set(HPX_MODULE_INTERFACE_EXTENSION ".cppm")
-elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-  # GCC 14+ uses .cxx for module interface units
-  set(HPX_MODULE_INTERFACE_EXTENSION ".cxx")
-  # GCC 14 requires -fmodules-ts to enable C++20 named modules
-  # even when -std=c++20 is set (this is a known GCC limitation)
-  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts>)
-else()
-  hpx_error(
-    "C++ modules are not supported for the used compiler ('${CMAKE_CXX_COMPILER_ID}')"
-  )
 endif()
 
 # hpx_configure_module_producer(<producer> [MODULE_OUT_DIR <dir>])
@@ -84,26 +121,15 @@ function(hpx_configure_module_producer producer)
     # Clang common flags
     target_compile_options(${producer} PRIVATE "-fmodule-output=${_moddir}")
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    # GCC 14+: C++20 named modules require -fmodules-ts even when -std=c++20 is set.
-    # Unlike Clang (-fmodule-output=) or MSVC (automatic IFC), GCC uses the
-    # module mapper protocol. With CMake 3.29+ and Ninja, CMake's native
-    # CXX_SCAN_FOR_MODULES handles the dependency graph and build ordering.
-    # We only need to explicitly add -fmodules-ts; GCC will write .gcm files
-    # to gcm.cache/ relative to the compiler's working directory automatically.
-    check_cxx_compiler_flag("-fmodules-ts" HPX_GCC_SUPPORTS_FMODULES_TS)
-    if(HPX_GCC_SUPPORTS_FMODULES_TS)
-      target_compile_options(${producer} PRIVATE "-fmodules-ts")
-      hpx_info(
-        "GCC module support: '-fmodules-ts' enabled for producer '${producer}'. "
-        "GCC will write .gcm files to gcm.cache/ relative to the build directory."
-      )
-    else()
-      hpx_error(
-        "hpx_configure_module_producer: GCC >= 14 is required for C++ module "
-        "support. The detected compiler does not support '-fmodules-ts'. "
-        "Please upgrade to GCC 14 or later."
-      )
-    endif()
+    # GCC 14+: -fmodule-output= is a Clang-only flag and is NOT supported by GCC.
+    # With CMake 3.29+ and the Ninja generator, CMake's native CXX_SCAN_FOR_MODULES
+    # handles dependency tracking and build ordering for GCC modules automatically.
+    # GCC writes .gcm files to gcm.cache/ relative to its working directory.
+    # The -fmodules-ts flag is already added globally by hpx_check_cxx_modules_support.
+    hpx_info(
+      "hpx_configure_module_producer: GCC module producer '${producer}' configured. "
+      "CMake native scanning will manage .gcm file discovery."
+    )
   else()
     hpx_warn(
       "hpx_configure_module_producer: unknown compiler '${CMAKE_CXX_COMPILER_ID}'; "
@@ -146,17 +172,13 @@ function(hpx_configure_module_consumer consumer producer)
         target_link_options(${consumer} PRIVATE "-Wl,--error-limit=0")
       endif()
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      # GCC 14+: Only -fmodules-ts is needed for consumers.
-      # CMake's native module scanning handles build ordering and discovery.
-      # -fprebuilt-module-path= is Clang-only and NOT supported by GCC.
-      if(HPX_GCC_SUPPORTS_FMODULES_TS)
-        target_compile_options(${consumer} PRIVATE "-fmodules-ts")
-      else()
-        hpx_error(
-          "hpx_configure_module_consumer: GCC >= 14 is required for C++ module "
-          "support. Please upgrade to GCC 14 or later."
-        )
-      endif()
+      # GCC 14+: -fprebuilt-module-path= is a Clang-only flag NOT supported by GCC.
+      # CMake 3.29+ native module scanning handles .gcm file discovery for GCC
+      # consumers automatically via the dependency graph — no extra flags needed.
+      hpx_info(
+        "hpx_configure_module_consumer: GCC consumer '${consumer}' configured. "
+        "CMake native scanning handles .gcm module discovery automatically."
+      )
     else()
       hpx_warn(
         "hpx_configure_module_consumer: unknown compiler '${CMAKE_CXX_COMPILER_ID}'"
