@@ -6,6 +6,7 @@
 
 include(HPX_AddCompileFlag)
 include(HPX_Message)
+include(CheckCXXCompilerFlag)
 
 if(NOT HPX_WITH_CXX_MODULES)
   return()
@@ -20,7 +21,11 @@ elseif(CMAKE_CXX_COMPILER_ID MATCHES "Clang" OR CMAKE_CXX_COMPILER_ID MATCHES
 )
   set(HPX_MODULE_INTERFACE_EXTENSION ".cppm")
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+  # GCC 14+ uses .cxx for module interface units
   set(HPX_MODULE_INTERFACE_EXTENSION ".cxx")
+  # GCC 14 requires -fmodules-ts to enable C++20 named modules
+  # even when -std=c++20 is set (this is a known GCC limitation)
+  add_compile_options($<$<COMPILE_LANGUAGE:CXX>:-fmodules-ts>)
 else()
   hpx_error(
     "C++ modules are not supported for the used compiler ('${CMAKE_CXX_COMPILER_ID}')"
@@ -79,13 +84,24 @@ function(hpx_configure_module_producer producer)
     # Clang common flags
     target_compile_options(${producer} PRIVATE "-fmodule-output=${_moddir}")
   elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-    # GCC: modern flags
-    hpx_add_target_compile_option_if_available(
-      ${producer} PRIVATE "-fmodule-output=${_moddir}" RESULT ok
-    )
-    if(NOT ok)
+    # GCC 14+: C++20 named modules require -fmodules-ts even when -std=c++20 is set.
+    # Unlike Clang (-fmodule-output=) or MSVC (automatic IFC), GCC uses the
+    # module mapper protocol. With CMake 3.29+ and Ninja, CMake's native
+    # CXX_SCAN_FOR_MODULES handles the dependency graph and build ordering.
+    # We only need to explicitly add -fmodules-ts; GCC will write .gcm files
+    # to gcm.cache/ relative to the compiler's working directory automatically.
+    check_cxx_compiler_flag("-fmodules-ts" HPX_GCC_SUPPORTS_FMODULES_TS)
+    if(HPX_GCC_SUPPORTS_FMODULES_TS)
+      target_compile_options(${producer} PRIVATE "-fmodules-ts")
+      hpx_info(
+        "GCC module support: '-fmodules-ts' enabled for producer '${producer}'. "
+        "GCC will write .gcm files to gcm.cache/ relative to the build directory."
+      )
+    else()
       hpx_error(
-        "hpx_configure_module_producer: the used version of gcc does not support '-fmodule-output'"
+        "hpx_configure_module_producer: GCC >= 14 is required for C++ module "
+        "support. The detected compiler does not support '-fmodules-ts'. "
+        "Please upgrade to GCC 14 or later."
       )
     endif()
   else()
@@ -130,13 +146,15 @@ function(hpx_configure_module_consumer consumer producer)
         target_link_options(${consumer} PRIVATE "-Wl,--error-limit=0")
       endif()
     elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
-      hpx_add_target_compile_option_if_available(
-        ${consumer} PRIVATE "-fprebuilt-module-path=${_module_dir}" RESULT ok
-      )
-      if(NOT ok)
+      # GCC 14+: Only -fmodules-ts is needed for consumers.
+      # CMake's native module scanning handles build ordering and discovery.
+      # -fprebuilt-module-path= is Clang-only and NOT supported by GCC.
+      if(HPX_GCC_SUPPORTS_FMODULES_TS)
+        target_compile_options(${consumer} PRIVATE "-fmodules-ts")
+      else()
         hpx_error(
-          "hpx_configure_module_consumer: the used version of clang does not "
-          "support '-fprebuilt-module-path='"
+          "hpx_configure_module_consumer: GCC >= 14 is required for C++ module "
+          "support. Please upgrade to GCC 14 or later."
         )
       endif()
     else()

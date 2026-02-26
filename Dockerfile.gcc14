@@ -1,0 +1,33 @@
+FROM ubuntu:24.04
+
+# Prevent timezone prompts
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Install dependencies including GCC 14
+RUN apt-get update && apt-get install -y \
+    build-essential \
+    ninja-build \
+    gcc-14 \
+    g++-14 \
+    git \
+    libhwloc-dev \
+    libboost-all-dev \
+    pkg-config \
+    python3 \
+    wget \
+    ca-certificates \
+    gpg \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install CMake 3.31+ via official Kitware APT repo (Ubuntu 24.04 only ships 3.28)
+RUN wget -O - https://apt.kitware.com/keys/kitware-archive-latest.asc 2>/dev/null | gpg --dearmor - | tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null \
+    && echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ noble main' | tee /etc/apt/sources.list.d/kitware.list >/dev/null \
+    && apt-get update \
+    && apt-get install -y cmake \
+    && rm -rf /var/lib/apt/lists/*
+
+# Make GCC 14 the default compiler
+RUN update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 100 \
+    --slave /usr/bin/g++ g++ /usr/bin/g++-14
+
+WORKDIR /workspace/hpx
