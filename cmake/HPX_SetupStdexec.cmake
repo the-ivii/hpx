@@ -66,6 +66,12 @@ if(HPX_WITH_FETCH_STDEXEC)
     Stdexec SYSTEM INTERFACE $<BUILD_INTERFACE:${stdexec_SOURCE_DIR}/include>
                              $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
   )
+  # nvcc 12.9 deduces stdexec's lambda-NTTP sender descriptors as void. Use
+  # stdexec's alternate descriptor representation throughout CUDA builds so that
+  # C++ and CUDA translation units agree on sender types.
+  if(_hpx_stdexec_nvcc_patch_required)
+    target_compile_definitions(Stdexec INTERFACE STDEXEC_DEMANGLE_SENDER_NAMES)
+  endif()
 
   install(
     TARGETS Stdexec

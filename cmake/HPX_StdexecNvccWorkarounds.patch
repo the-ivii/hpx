@@ -27,18 +27,13 @@ to nvcc 12.9 with a gcc 12 host compiler:
 SPDX-License-Identifier: BSL-1.0
 
 diff --git a/include/stdexec/__detail/__connect.hpp b/include/stdexec/__detail/__connect.hpp
-index d9b4c5d6..4fede426 100644
 --- a/include/stdexec/__detail/__connect.hpp
 +++ b/include/stdexec/__detail/__connect.hpp
-@@ -64,7 +64,7 @@ namespace STDEXEC
-                               || __with_co_await<_Sender, _Receiver>
-                               || __with_legacy_tag_invoke<_Sender, _Receiver>;
- 
+@@ -64,3 +64,3 @@ namespace STDEXEC
 -#  if !STDEXEC_MSVC()
 +#  if !STDEXEC_MSVC() && !STDEXEC_NVCC()
  
  #    define STDEXEC_CONNECT_DECLFN_FOR(_EXPR) __declfn_t<decltype(_EXPR), noexcept(_EXPR)>
- 
 diff --git a/include/stdexec/__detail/__counting_scopes.hpp b/include/stdexec/__detail/__counting_scopes.hpp
 index dc1651b8..c199c36a 100644
 --- a/include/stdexec/__detail/__counting_scopes.hpp
@@ -174,21 +169,15 @@ index 6d10b781..8c3c6133 100644
        }
      }
 diff --git a/include/stdexec/__detail/__typeinfo.hpp b/include/stdexec/__detail/__typeinfo.hpp
-index 13f83127..05e047e3 100644
 --- a/include/stdexec/__detail/__typeinfo.hpp
 +++ b/include/stdexec/__detail/__typeinfo.hpp
-@@ -121,7 +121,11 @@ namespace STDEXEC
-   template <class _Ty>
-   inline constexpr std::string_view __mnameof = __detail::__get_pretty_name<__demangle_t<_Ty>>();
- 
+@@ -121,2 +121,6 @@ namespace STDEXEC
 +#  if !STDEXEC_NVCC()
 +  // nvcc's EDG front end formats the pretty function name differently; the
 +  // name extraction is diagnostics-only, so skip the check there.
    static_assert(__mnameof<void> == "void");
 +#  endif
  
-   //////////////////////////////////////////////////////////////////////////////////////////
-   // __type_info
 @@ -277,7 +281,8 @@ namespace STDEXEC
  #  if STDEXEC_MSVC()
    template <__type_index _Id>
