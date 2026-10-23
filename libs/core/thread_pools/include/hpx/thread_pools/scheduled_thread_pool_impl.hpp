@@ -751,6 +751,14 @@ namespace hpx::threads::detail {
 
 #if defined(HPX_HAVE_THREAD_CUMULATIVE_COUNTS)
     template <typename Scheduler>
+    void scheduled_thread_pool<Scheduler>::increment_executed_threads(
+        std::size_t num) noexcept
+    {
+        HPX_ASSERT(num < counter_data_.size());
+        ++counter_data_[num].executed_threads_;
+    }
+
+    template <typename Scheduler>
     std::int64_t scheduled_thread_pool<Scheduler>::get_executed_threads(
         std::size_t num, bool reset)
     {

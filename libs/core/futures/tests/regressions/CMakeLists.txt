@@ -27,6 +27,11 @@ set(wait_for_1751_PARAMETERS THREADS_PER_LOCALITY 4)
 set(run_as_child_hint_7724_PARAMETERS THREADS_PER_LOCALITY 4)
 set(runs_child_race_7724_PARAMETERS THREADS_PER_LOCALITY 8)
 
+if(HPX_WITH_THREAD_CUMULATIVE_COUNTS)
+  list(APPEND tests run_as_child_cumulative_count_7830)
+  set(run_as_child_cumulative_count_7830_PARAMETERS THREADS_PER_LOCALITY 1)
+endif()
+
 foreach(test ${tests})
   set(sources ${test}.cpp)
 

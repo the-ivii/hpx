@@ -238,6 +238,12 @@ namespace hpx::threads {
 
         // performance counters
 #if defined(HPX_HAVE_THREAD_CUMULATIVE_COUNTS)
+        /// Record a thread executed directly on the given pool worker.
+        virtual void increment_executed_threads(
+            std::size_t /*thread_num*/) noexcept
+        {
+        }
+
         virtual std::int64_t get_executed_threads(
             std::size_t /*thread_num*/, bool /*reset*/)
         {

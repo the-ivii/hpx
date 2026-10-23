@@ -161,6 +161,13 @@ namespace hpx::threads::detail {
                     if (prev_state == thread_schedule_state::terminated)
                     {
                         hpx::tracing::task_completed(thrdptr);
+
+#if defined(HPX_HAVE_THREAD_CUMULATIVE_COUNTS)
+                        auto* pool = hpx::this_thread::get_pool();
+                        HPX_ASSERT(pool != nullptr);
+                        pool->increment_executed_threads(
+                            hpx::get_local_worker_thread_num());
+#endif
                     }
                 });
                 profiler.handle_post_execution(thrdptr, prev_state);
